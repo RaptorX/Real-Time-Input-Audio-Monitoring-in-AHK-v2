@@ -87,12 +87,12 @@ class AudioRecorder {
         nBlockAlign := (this.nChannels * this.nBytesPerSample)
         nAvgBytesPerSec := this.nSamplesPerSec * nBlockAlign
        
-        NumPut("UShort", 1, this.WAVEFORMATEX, 0)                 ; wFormatTag: (0x01 = WAVE_FORMAT_PCM)
+        NumPut("UShort", 1, this.WAVEFORMATEX, 0)                 ; wformatTag: (0x01 = WAVE_FORMAT_PCM)
         NumPut("UShort", this.nChannels, this.WAVEFORMATEX, 2)    ; nChannels: number of channels
         NumPut("UInt", this.nSamplesPerSec, this.WAVEFORMATEX, 4) ; Sample rate, in samples per second (hertz)
         NumPut("UInt", nAvgBytesPerSec, this.WAVEFORMATEX, 8)     ; Required average data-transfer rate, in bytes per second
         NumPut("UShort", nBlockAlign, this.WAVEFORMATEX, 12)      ; Block alignment, in bytes
-        NumPut("UShort", this.nBytesPerSample * 8, this.WAVEFORMATEX, 14) ; Bits per sample for the wFormatTag format type
+        NumPut("UShort", this.nBytesPerSample * 8, this.WAVEFORMATEX, 14) ; Bits per sample for the wformatTag format type
         NumPut("UShort", 0, this.WAVEFORMATEX, 16)                ; cbSize: Size, in bytes, of extra format information
    
         result := DllCall(
@@ -205,6 +205,102 @@ class AudioRecorder {
             this.deviceIndex := deviceIndex
             this.isPrepared := False
         }
+    }
+
+    ;======================================================================
+    ; Saves the current recording buffer to a file
+    ;======================================================================
+    ; Parameters:
+    ;   - filePath (String): Path of the file to save the audio data to
+    ;   - format (String): Optional format to convert the buffer into. If not
+    ;       specified and filePath has no extension, defaults to "mp3".
+    ;======================================================================
+    SaveBufferToFile(filePath, format:=""){
+        SplitPath(filePath,,, &ext)
+        if (ext) {
+            format := ext
+        } else {
+            if (format = "")
+                format := "mp3"
+            filePath .= "." format
+        }
+
+        this.ConvertAndSave(filePath, format)
+    }
+
+    ConvertAndSave(filePath, format) {
+        local pWriter := 0, pInputType := 0, pOutputType := 0
+        local pBuffer := 0, pSample := 0, pData := 0
+        local maxLen := 0, currLen := 0
+        static MF_VERSION := 0x00020070
+        ; Start Media Foundation
+        hr := DllCall("mfplat\MFStartup", "UInt", MF_VERSION, "UInt", 0, "UInt")
+        if (hr)
+            throw Error("MFStartup failed", -1, hr)
+
+        ; Create a sink writer for the destination file
+        hr := DllCall("mfreadwrite\MFCreateSinkWriterFromURL", "Str", filePath,
+                        "Ptr", 0, "Ptr", 0, "Ptr*", &pWriter, "UInt")
+        if (hr)
+            goto CleanUp
+
+        ; Configure the input type (PCM)
+        hr := DllCall("mfplat\MFCreateMediaType", "Ptr*", &pInputType, "UInt")
+        if !hr {
+            DllCall("mfplat\MFInitMediaTypeFromWaveFormatEx", "Ptr", pInputType,
+                     "Ptr", this.WAVEFORMATEX.ptr, "UInt", this.WAVEFORMATEX.size)
+            DllCall("mfreadwrite\IMFSinkWriter_SetInputMediaType", "Ptr", pWriter,
+                     "UInt", 0, "Ptr", pInputType, "Ptr", 0)
+        }
+
+        ; Configure the output type based on the chosen format
+        hr := DllCall("mfplat\MFCreateMediaType", "Ptr*", &pOutputType, "UInt")
+        if !hr {
+            DllCall("mfplat\MFInitMediaTypeFromWaveFormatEx", "Ptr", pOutputType,
+                     "Ptr", this.WAVEFORMATEX.ptr, "UInt", this.WAVEFORMATEX.size)
+            if (format = "mp3")
+                DllCall("mfplat\MFSetAttributeGUID", "Ptr", pOutputType,
+                         "Ptr", 0x0000000000000000, "Ptr", 0x0000000000000000) ; MFAudioFormat_MP3
+            ; Additional formats would need their GUIDs here
+
+            DllCall("mfreadwrite\IMFSinkWriter_SetOutputMediaType", "Ptr", pWriter,
+                     "UInt", 0, "Ptr", pOutputType, "Ptr", 0)
+        }
+
+        ; Begin writing, write the buffer as a single sample, then finalize
+        if !DllCall("mfreadwrite\IMFSinkWriter_BeginWriting", "Ptr", pWriter)
+        {
+            ; Create sample from buffer
+            DllCall("mfplat\MFCreateMemoryBuffer", "UInt", this.recordingBuffer.Size,
+                     "Ptr*", &pBuffer)
+            DllCall("mfplat\IMFMediaBuffer_Lock", "Ptr", pBuffer, "Ptr*", &pData,
+                     "UInt*", &maxLen, "UInt*", &currLen)
+            DllCall("RtlMoveMemory", "Ptr", pData, "Ptr", this.recordingBuffer.Ptr,
+                     "Ptr", this.recordingBuffer.Size)
+            DllCall("mfplat\IMFMediaBuffer_Unlock", "Ptr", pBuffer)
+            DllCall("mfplat\IMFMediaBuffer_SetCurrentLength", "Ptr", pBuffer,
+                     "UInt", this.recordingBuffer.Size)
+
+            DllCall("mfplat\MFCreateSample", "Ptr*", &pSample)
+            DllCall("mfplat\IMFSample_AddBuffer", "Ptr", pSample, "Ptr", pBuffer)
+            DllCall("mfreadwrite\IMFSinkWriter_WriteSample", "Ptr", pWriter,
+                     "UInt", 0, "Ptr", pSample)
+            DllCall("mfreadwrite\IMFSinkWriter_Finalize", "Ptr", pWriter)
+        }
+
+    CleanUp:
+        if (pWriter)
+            DllCall("mfreadwrite\IMFSinkWriter_Release", "Ptr", pWriter)
+        if (pInputType)
+            DllCall("mfplat\IMFMediaType_Release", "Ptr", pInputType)
+        if (pOutputType)
+            DllCall("mfplat\IMFMediaType_Release", "Ptr", pOutputType)
+        if (pSample)
+            DllCall("mfplat\IMFSample_Release", "Ptr", pSample)
+        if (pBuffer)
+            DllCall("mfplat\IMFMediaBuffer_Release", "Ptr", pBuffer)
+
+        DllCall("mfplat\MFShutdown")
     }
 
     ;=========================================================================================

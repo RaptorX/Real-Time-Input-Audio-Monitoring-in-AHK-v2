@@ -13,6 +13,19 @@ This script utilizes the WinAPI Multimedia functions (winmm.dll) for audio recor
 ## Requirements
 - AutoHotkey v2.0
 
+## Usage
+After calling `recorder.Start()` you can save the captured audio with:
+
+```autohotkey
+; default format is mp3 when no extension is provided
+recorder.SaveBufferToFile("output")
+
+; specifying a different format
+recorder.SaveBufferToFile("output.wav")
+; or
+recorder.SaveBufferToFile("output", "wav")
+```
+
 ## Contributing
 Feel free to submit issues or pull requests if you find any bugs or have suggestions for improvements.
 
