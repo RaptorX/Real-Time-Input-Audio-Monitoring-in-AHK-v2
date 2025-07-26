@@ -207,6 +207,19 @@ class AudioRecorder {
         }
     }
 
+    ;======================================================================
+    ; Saves the current recording buffer to a file
+    ;======================================================================
+    ; Parameters:
+    ;   - filePath (String): Path of the file to save the raw audio data to
+    ;======================================================================
+    SaveBufferToFile(filePath){
+        dwBytesRecorded := this.recordingBuffer.Size
+        file := FileOpen(filePath, "w")
+        file.RawWrite(this.recordingBuffer)
+        file.Close()
+    }
+
     ;=========================================================================================
     ; Retrives a list of input devices names  
     ;=========================================================================================
