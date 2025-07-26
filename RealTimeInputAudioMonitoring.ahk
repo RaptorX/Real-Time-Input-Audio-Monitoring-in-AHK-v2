@@ -208,18 +208,61 @@ class AudioRecorder {
     }
 
     ;======================================================================
-    ; Saves the current recording buffer to a file
+    ; Saves the current recording buffer to a file and converts it when needed
     ;======================================================================
     ; Parameters:
-    ;   - filePath (String): Path of the file to save the raw audio data to
+    ;   - filePath (String): Path of the file to save the audio to
+    ;   - format (String): Desired audio format (mp3, wav, ...). If empty the
+    ;       extension of filePath is used. When no extension is provided mp3 is
+    ;       assumed.
     ;======================================================================
-    SaveBufferToFile(filePath){
-        if !RegExMatch(filePath, "(?i)\.pcm$")
-            filePath .= ".pcm"
+    SaveBufferToFile(filePath, format:=""){
+        SplitPath(filePath, , , &ext)
+        if (ext != "")
+            format := StrLower(ext)
+        else if (format = "")
+            format := "mp3"
 
-        file := FileOpen(filePath, "w")
+        if (ext = "")
+            filePath .= "." format
+
+        if (StrLower(format) = "pcm"){
+            file := FileOpen(filePath, "w")
+            file.RawWrite(this.recordingBuffer)
+            file.Close()
+            return
+        }
+
+        tempPath := A_Temp "\recording_" A_TickCount ".pcm"
+        file := FileOpen(tempPath, "w")
         file.RawWrite(this.recordingBuffer)
         file.Close()
+
+        AudioRecorder.ConvertPCM(tempPath, filePath, format)
+        FileDelete(tempPath)
+    }
+
+    ;======================================================================
+    ; Converts a PCM file to another format using Windows Media Foundation
+    ;======================================================================
+    ; Parameters:
+    ;   - inPath (String): path to the temporary PCM file
+    ;   - outPath (String): destination file path
+    ;   - format (String): output format (e.g. mp3, wav)
+    ;======================================================================
+    static ConvertPCM(inPath, outPath, format){
+        profileMap := Map("mp3", "CreateMp3", "wav", "CreateWav", "wma", "CreateWma")
+        profileMethod := profileMap.Has(format) ? profileMap[format] : profileMap["mp3"]
+
+        ps := "Add-Type -AssemblyName 'Windows.winmd';" .
+              "$transcoder = New-Object Windows.Media.Transcoding.MediaTranscoder;" .
+              "$profile = [Windows.Media.MediaProperties.MediaEncodingProfile]::" . profileMethod . "([Windows.Media.MediaProperties.AudioEncodingQuality]::Auto);" .
+              "$in = [Windows.Storage.StorageFile]::GetFileFromPathAsync('" inPath "').GetAwaiter().GetResult();" .
+              "$out = [Windows.Storage.StorageFile]::GetFileFromPathAsync('" outPath "').GetAwaiter().GetResult();" .
+              "$prep = $transcoder.PrepareFileTranscodeAsync($in,$out,$profile).GetAwaiter().GetResult();" .
+              "if($prep.CanTranscode){$prep.TranscodeAsync().GetAwaiter().GetResult()} else {exit 1}"
+
+        RunWait(A_ComSpec " /c powershell -NoProfile -Command \"" ps "\"")
     }
 
     ;=========================================================================================
