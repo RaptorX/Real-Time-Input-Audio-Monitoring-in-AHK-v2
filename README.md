@@ -17,7 +17,7 @@ This script utilizes the WinAPI Multimedia functions (winmm.dll) for audio recor
 After calling `recorder.Start()` you can save the captured audio with:
 
 ```autohotkey
-recorder.SaveBufferToFile("output.raw")
+recorder.SaveBufferToFile("output.pcm")
 ```
 
 ## Contributing

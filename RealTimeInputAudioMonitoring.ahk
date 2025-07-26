@@ -214,7 +214,9 @@ class AudioRecorder {
     ;   - filePath (String): Path of the file to save the raw audio data to
     ;======================================================================
     SaveBufferToFile(filePath){
-        dwBytesRecorded := this.recordingBuffer.Size
+        if !RegExMatch(filePath, "(?i)\.pcm$")
+            filePath .= ".pcm"
+
         file := FileOpen(filePath, "w")
         file.RawWrite(this.recordingBuffer)
         file.Close()
